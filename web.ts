@@ -22,8 +22,6 @@ function getHtml(): string {
   .label{font-size:12px;color:var(--text2);white-space:nowrap}
   .stat-chip{font-size:11px;color:var(--text2);background:var(--bg3);padding:3px 8px;border-radius:4px;white-space:nowrap}
   .stat-chip b{color:var(--green)}
-  .search-box{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:6px;font-size:12px;width:160px;outline:none}
-  .search-box::placeholder{color:var(--text3)}
   .main{display:flex;flex:1;overflow:hidden}
   .list-wrap{width:420px;border-right:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column}
   .list{flex:1;overflow-y:auto;position:relative}
@@ -86,7 +84,6 @@ function getHtml(): string {
 <div class="toolbar">
   <h1>LLM Proxy</h1>
   <div class="spacer"></div>
-  <input class="search-box" id="searchBox" type="text" placeholder="搜索 model / 内容...">
   <span class="stat-chip" id="totalTokens">Prompt: <b>0</b> | Completion: <b>0</b></span>
   <span class="count" id="count">0 条</span>
   <button onclick="clearAll()">清空</button>
@@ -108,7 +105,6 @@ function getHtml(): string {
 const requests = new Map();
 let selectedId = null;
 let lastDetailHash = '';
-let searchText = '';
 
 const $list = document.getElementById('list');
 const $listSpacer = document.getElementById('listSpacer');
@@ -116,7 +112,6 @@ const $listContent = document.getElementById('listContent');
 const $detail = document.getElementById('detail');
 const $count = document.getElementById('count');
 const $totalTokens = document.getElementById('totalTokens');
-const $searchBox = document.getElementById('searchBox');
 
 // ─── 工具函数 ───
 function formatTime(ts){return new Date(ts).toLocaleTimeString('zh-CN',{hour12:false})}
@@ -124,29 +119,6 @@ function methodClass(m){return m==='POST'?'method-post':m==='GET'?'method-get':'
 function statusClass(c){return c>=200&&c<300?'status-2xx':c>=400&&c<500?'status-4xx':'status-5xx'}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function prettyJson(s){try{return JSON.stringify(JSON.parse(s),null,2)}catch{return s}}
-function matchSearch(item){
-  if(!searchText) return true;
-  const q = searchText.toLowerCase();
-  const req = item.req, res = item.res;
-  if(req.chatRequest?.model?.toLowerCase().includes(q)) return true;
-  if(req.chatRequest?.messages?.some(m=>m.content?.toLowerCase().includes(q))) return true;
-  if(res?.chatResponse?.content?.toLowerCase().includes(q)) return true;
-  if(req.sseContent?.toLowerCase().includes(q)) return true;
-  if(req.body?.toLowerCase().includes(q)) return true;
-  if(res?.body?.toLowerCase().includes(q)) return true;
-  return false;
-}
-
-// ─── 搜索 ───
-let searchTimer = null;
-$searchBox.addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    searchText = e.target.value.trim();
-    lastListHash = '';
-    renderList();
-  }, 200);
-});
 
 // ─── 自动刷新 ───
 async function refreshData(){
@@ -196,8 +168,7 @@ const rowPool = new Map();
 let renderedIds = [];
 
 function computeFiltered(){
-  const all = [...requests.values()].reverse();
-  filteredItems = searchText ? all.filter(matchSearch) : all;
+  filteredItems = [...requests.values()].reverse();
 }
 
 // 创建一行 DOM 元素（只创建一次，后续只更新内容）
@@ -485,7 +456,13 @@ function connect(){
   const es=new EventSource('/api/logs/stream');
   es.onopen=()=>{sseConnected=true};
   es.onmessage=(e)=>{sseConnected=true;try{processEntry(JSON.parse(e.data))}catch{}};
-  es.onerror=()=>{es.close();sseConnected=false;setTimeout(connect,2000)};
+  // 只在连接已建立后断开才重连；连接中(readyState=0)的 onerror 由浏览器自动重试
+  es.onerror=()=>{
+    if(es.readyState===EventSource.CLOSED){
+      sseConnected=false;
+      setTimeout(connect,2000);
+    }
+  };
 }
 // 先加载历史，再开启 SSE，避免竞态导致数据丢失
 async function loadHistory(){
