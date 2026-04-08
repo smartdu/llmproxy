@@ -184,7 +184,6 @@ export interface LogEntry {
 
 const logStore: LogEntry[] = [];
 let logIdCounter = 0;
-const MAX_LOG_ENTRIES = 1000;
 
 type LogListener = (entry: LogEntry) => void;
 const listeners = new Set<LogListener>();
@@ -197,9 +196,6 @@ export function onLog(listener: LogListener): () => void {
 function addLog(entry: Omit<LogEntry, 'id'>): LogEntry {
   const full: LogEntry = { ...entry, id: String(++logIdCounter) };
   logStore.push(full);
-  if (logStore.length > MAX_LOG_ENTRIES) {
-    logStore.splice(0, logStore.length - MAX_LOG_ENTRIES);
-  }
   for (const listener of listeners) {
     listener(full);
   }
@@ -387,9 +383,6 @@ export function importLogs(entries: LogEntry[]): { imported: number } {
     }
     imported++;
   }
-  if (logStore.length > MAX_LOG_ENTRIES) {
-    logStore.splice(0, logStore.length - MAX_LOG_ENTRIES);
-  }
   return { imported };
 }
 
@@ -424,9 +417,6 @@ export function loadFromServerFile(filepath: string): { imported: number; error?
       } catch {
         // Skip invalid JSON lines
       }
-    }
-    if (logStore.length > MAX_LOG_ENTRIES) {
-      logStore.splice(0, logStore.length - MAX_LOG_ENTRIES);
     }
     return { imported };
   } catch (e) {

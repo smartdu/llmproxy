@@ -50,7 +50,13 @@ function getHtml(): string {
   .list-item .token-tag{font-size:10px;padding:1px 5px;border-radius:3px}
   .token-prompt{background:color-mix(in srgb,var(--blue) 15%,transparent);color:var(--blue)}
   .token-compl{background:color-mix(in srgb,var(--purple) 15%,transparent);color:var(--purple)}
-  .detail{flex:1;overflow-y:auto;padding:16px}
+  .detail{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .detail-toc{background:var(--bg2);border-bottom:1px solid var(--border);padding:6px 16px;display:flex;gap:4px;flex-shrink:0}
+  .detail-toc a{font-size:12px;padding:3px 10px;border-radius:4px;color:var(--text2);text-decoration:none;cursor:pointer}
+  .detail-toc a:hover{background:var(--bg3);color:var(--text)}
+  .detail-toc a.toc-req{color:var(--blue)}
+  .detail-toc a.toc-res{color:var(--purple)}
+  .detail-scroll{flex:1;overflow-y:auto;padding:16px}
   .detail-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:14px}
   .detail-section{margin-bottom:20px}
   .detail-section h3{font-size:13px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
@@ -397,9 +403,22 @@ function renderDetail(){
   if(hash===lastDetailHash) return;
   lastDetailHash=hash;
 
-  let h='';
+  var hasSummary=!!(cr||cRes);
+  var hasConversation=!!(cr?.messages||cRes?.content||req.sseContent);
+  var hasResponse=!!res;
+
+  // 目录栏
+  var toc='<div class="detail-toc">';
+  if(hasSummary) toc+='<a onclick="scrollToSection(\'sec-summary\')">摘要</a>';
+  if(hasConversation) toc+='<a onclick="scrollToSection(\'sec-conversation\')">对话</a>';
+  toc+='<a class="toc-req" onclick="scrollToSection(\'sec-request\')">请求</a>';
+  if(hasResponse) toc+='<a class="toc-res" onclick="scrollToSection(\'sec-response\')">响应</a>';
+  toc+='</div>';
+
+  var h='';
   // 摘要
-  if(cr||cRes){
+  if(hasSummary){
+    h+='<div id="sec-summary" class="detail-section"><h3 class="req-title">摘要</h3>';
     h+='<div class="summary">';
     if(cr?.model) h+='<div class="summary-card"><div class="card-label">Model</div><div class="value blue">'+esc(cr.model)+'</div></div>';
     if(cr?.stream!==undefined) h+='<div class="summary-card"><div class="card-label">Stream</div><div class="value '+(cr.stream?'purple':'green')+'">'+(cr.stream?'Yes':'No')+'</div></div>';
@@ -412,11 +431,11 @@ function renderDetail(){
       h+='<div class="summary-card"><div class="card-label">Completion Tokens</div><div class="value">'+(cRes.usage.completion_tokens??'-')+'</div></div>';
       h+='<div class="summary-card"><div class="card-label">Total Tokens</div><div class="value green">'+(cRes.usage.total_tokens??'-')+'</div></div>';
     }
-    h+='</div>';
+    h+='</div></div>';
   }
   // 对话
-  if(cr?.messages||cRes?.content||req.sseContent){
-    h+='<div class="conversation">';
+  if(hasConversation){
+    h+='<div id="sec-conversation" class="detail-section"><h3 class="req-title">对话</h3><div class="conversation">';
     if(cr?.messages){
       for(const msg of cr.messages){
         const role=(msg.role||'unknown').toLowerCase();
@@ -426,19 +445,19 @@ function renderDetail(){
     }
     if(res?.isStream&&req.sseContent) h+='<div class="msg msg-assistant"><div class="msg-role">assistant</div>'+esc(req.sseContent)+'</div>';
     else if(cRes?.content) h+='<div class="msg msg-assistant"><div class="msg-role">assistant</div>'+esc(cRes.content)+'</div>';
-    h+='</div>';
+    h+='</div></div>';
   }
   // Raw Request
   const dur = res && req.timestamp ? getDuration(req.timestamp, res.timestamp) : '';
-  h+='<div class="detail-section"><h3 class="req-title">Raw Request'+(dur?' <span style="font-size:11px;color:var(--text3);font-weight:normal">'+dur+'</span>':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>'+esc(req.method+' '+(req.url||''))+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(req.headers||{}))+'\\n\\nBody:\\n'+(req.body?esc(prettyJson(req.body)):'(empty)')+'</pre></div>';
+  h+='<div id="sec-request" class="detail-section"><h3 class="req-title">Raw Request'+(dur?' <span style="font-size:11px;color:var(--text3);font-weight:normal">'+dur+'</span>':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>'+esc(req.method+' '+(req.url||''))+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(req.headers||{}))+'\\n\\nBody:\\n'+(req.body?esc(prettyJson(req.body)):'(empty)')+'</pre></div>';
   // Raw Response
-  if(res){
-    h+='<div class="detail-section"><h3 class="res-title">Raw Response'+(res.isStream?' [SSE]':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>Status: '+res.statusCode+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(res.headers||{}))+'\\n\\n';
+  if(hasResponse){
+    h+='<div id="sec-response" class="detail-section"><h3 class="res-title">Raw Response'+(res.isStream?' [SSE]':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>Status: '+res.statusCode+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(res.headers||{}))+'\\n\\n';
     if(res.isStream&&chunks&&chunks.length>0){h+='SSE Chunks:\\n';for(const c of chunks) h+=esc(c.body)+'\\n';}
     else h+='Body:\\n'+(res.body?esc(prettyJson(res.body)):'(empty)');
     h+='</pre></div>';
   }
-  $detail.innerHTML=h;
+  $detail.innerHTML=toc+'<div class="detail-scroll">'+h+'</div>';
 }
 
 // ─── 数据处理（批量） ───
@@ -537,6 +556,13 @@ function copySection(btn){
     btn.classList.add('copied');
     setTimeout(function(){btn.textContent='复制';btn.classList.remove('copied');},1500);
   });
+}
+
+// ─── 目录跳转 ───
+function scrollToSection(id){
+  var el=document.getElementById(id);
+  var scroller=document.querySelector('.detail-scroll');
+  if(el&&scroller) scroller.scrollTo({top:el.offsetTop-scroller.offsetTop,behavior:'smooth'});
 }
 
 loadHistory();
