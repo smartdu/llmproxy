@@ -1,0 +1,22 @@
+{
+  "name": "llm-https-proxy",
+  "version": "1.0.0",
+  "description": "HTTPS reverse proxy for intercepting and logging LLM API requests/responses",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "openai": "PROXY_TARGET=https://api.openai.com tsx index.ts",
+    "deepseek": "PROXY_TARGET=https://api.deepseek.com tsx index.ts",
+    "claude": "PROXY_TARGET=https://api.anthropic.com tsx index.ts"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.4.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
