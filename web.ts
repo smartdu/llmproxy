@@ -1,4 +1,5 @@
 import * as http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import { getLogs, clearLogs, onLog, importLogs, type LogEntry } from './logger.js';
 import { info } from './logger.js';
 import type { ProxyConfig } from './config.js';
@@ -77,7 +78,6 @@ function getHtml(): string {
   .msg-user{background:var(--mub);border-left:3px solid var(--green)}.msg-user .msg-role{color:var(--green)}
   .msg-assistant{background:var(--mab);border-left:3px solid var(--purple)}.msg-assistant .msg-role{color:var(--purple)}
   .msg-error{background:var(--meb);border-left:3px solid var(--red)}.msg-error .msg-role{color:var(--red)}
-  .search-highlight{background:color-mix(in srgb,var(--yellow) 40%,transparent);border-radius:2px;padding:0 1px}
 </style>
 </head>
 <body>
@@ -120,33 +120,6 @@ function statusClass(c){return c>=200&&c<300?'status-2xx':c>=400&&c<500?'status-
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function prettyJson(s){try{return JSON.stringify(JSON.parse(s),null,2)}catch{return s}}
 
-// ─── 自动刷新 ───
-async function refreshData(){
-  try{
-    const resp=await fetch('/api/logs');
-    const data=await resp.json();
-    requests.clear();
-    // 清除旧的行池
-    for(const el of rowPool.values()) el.remove();
-    rowPool.clear();
-    renderedIds=[];
-    for(const entry of data){
-      if(entry.type==='request') requests.set(entry.id,{req:entry,res:null,chunks:[]});
-      else if(entry.type==='response'){
-        const rid=entry.requestId;
-        if(rid&&requests.has(rid)) requests.get(rid).res=entry;
-        else requests.set(entry.id,{req:{id:entry.id,timestamp:entry.timestamp,method:'?',url:'?'},res:entry,chunks:[]});
-      }else if(entry.type==='sse_chunk'){
-        const rid=entry.requestId;
-        if(rid&&requests.has(rid)) requests.get(rid).chunks.push(entry);
-      }
-    }
-    lastDetailHash='';lastListHash='';
-    renderList();
-    if(selectedId) renderDetail();
-  }catch{}
-}
-
 // ─── Token 统计 ───
 function updateTotalTokens(){
   let p=0,c=0;
@@ -162,16 +135,13 @@ const ITEM_HEIGHT = 72;
 const BUFFER = 5;
 let lastListHash = '';
 let filteredItems = [];
-// 虚拟滚动行池：id → 行 div 元素（避免 innerHTML 重建）
 const rowPool = new Map();
-// 记录当前渲染的 id 列表（用于回收）
 let renderedIds = [];
 
 function computeFiltered(){
   filteredItems = [...requests.values()].reverse();
 }
 
-// 创建一行 DOM 元素（只创建一次，后续只更新内容）
 function createRowEl(id) {
   const div = document.createElement('div');
   div.className = 'list-item';
@@ -186,7 +156,6 @@ function createRowEl(id) {
   div.style.padding = '10px 14px';
   div.style.borderBottom = '1px solid var(--border)';
   div.style.cursor = 'pointer';
-  // 内部结构（用字符串拼接，不用嵌套 template literal）
   const inner = '<div class="meta" style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
     '<span class="seq" style="font-size:11px;color:var(--text3);min-width:24px"></span>' +
     '<span class="method" style="font-weight:700;font-size:11px;padding:1px 6px;border-radius:3px"></span>' +
@@ -207,7 +176,6 @@ function updateRowEl(el, item, seq) {
   el.className = 'list-item' + (isActive ? ' active' : '');
   el.dataset.id = id;
 
-  // meta
   const meta = el.querySelector('.meta');
   const seqEl = meta.children[0];
   const methodEl = meta.children[1];
@@ -242,7 +210,6 @@ function updateRowEl(el, item, seq) {
     modelEl.style.display = 'none';
   }
 
-  // token row
   const tokenRow = el.querySelector('.token-row');
   const usage = res?.chatResponse?.usage;
   if (usage) {
@@ -254,7 +221,6 @@ function updateRowEl(el, item, seq) {
     tokenRow.innerHTML = '';
   }
 
-  // time + duration
   const timeEl = el.querySelector('.time');
   const duration = res && req.timestamp ? getDuration(req.timestamp, res.timestamp) : '';
   timeEl.textContent = formatTime(req.timestamp) + (duration ? ' · ' + duration : '');
@@ -275,7 +241,6 @@ function renderList(){
   updateTotalTokens();
   if(filteredItems.length===0){
     $listSpacer.style.height='0';
-    // 清空所有池中行
     for(const el of rowPool.values()) el.remove();
     rowPool.clear();
     renderedIds = [];
@@ -285,7 +250,6 @@ function renderList(){
     return;
   }
   $listSpacer.style.height = (filteredItems.length * ITEM_HEIGHT) + 'px';
-  // 清除 empty-list 提示
   const emptyEl = $listContent.querySelector('.empty-list');
   if(emptyEl) emptyEl.remove();
   renderVisibleItems();
@@ -301,11 +265,9 @@ function renderVisibleItems(){
   startIdx = Math.max(0, startIdx);
   endIdx = Math.min(total, endIdx);
 
-  // 当前应该显示的 id 列表
   const newIds = [];
   for(let i=startIdx;i<endIdx;i++) newIds.push(filteredItems[i].req.id);
 
-  // 回收不在 newIds 中的行
   for(const id of renderedIds) {
     if(!newIds.includes(id)) {
       const el = rowPool.get(id);
@@ -313,7 +275,6 @@ function renderVisibleItems(){
     }
   }
 
-  // 创建或更新行
   for(let i=startIdx;i<endIdx;i++){
     const {req} = filteredItems[i];
     const id = req.id;
@@ -337,7 +298,6 @@ function selectItem(id){
   if(id===selectedId) return;
   const oldId = selectedId;
   selectedId=id;
-  // 只更新 active 状态，不重建列表
   if(oldId) {
     const oldEl = rowPool.get(oldId);
     if(oldEl) oldEl.classList.remove('active');
@@ -369,7 +329,6 @@ function renderDetail(){
   var hasConversation=!!(cr?.messages||cRes?.content||req.sseContent);
   var hasResponse=!!res;
 
-  // 目录栏
   var toc='<div class="detail-toc">';
   if(hasSummary) toc+='<a onclick="scrollToSection(\'sec-summary\')">摘要</a>';
   if(hasConversation) toc+='<a onclick="scrollToSection(\'sec-conversation\')">对话</a>';
@@ -378,7 +337,6 @@ function renderDetail(){
   toc+='</div>';
 
   var h='';
-  // 摘要
   if(hasSummary){
     h+='<div id="sec-summary" class="detail-section"><h3 class="req-title">摘要</h3>';
     h+='<div class="summary">';
@@ -395,7 +353,6 @@ function renderDetail(){
     }
     h+='</div></div>';
   }
-  // 对话
   if(hasConversation){
     h+='<div id="sec-conversation" class="detail-section"><h3 class="req-title">对话</h3><div class="conversation">';
     if(cr?.messages){
@@ -409,10 +366,8 @@ function renderDetail(){
     else if(cRes?.content) h+='<div class="msg msg-assistant"><div class="msg-role">assistant</div>'+esc(cRes.content)+'</div>';
     h+='</div></div>';
   }
-  // Raw Request
   const dur = res && req.timestamp ? getDuration(req.timestamp, res.timestamp) : '';
   h+='<div id="sec-request" class="detail-section"><h3 class="req-title">Raw Request'+(dur?' <span style="font-size:11px;color:var(--text3);font-weight:normal">'+dur+'</span>':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>'+esc(req.method+' '+(req.url||''))+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(req.headers||{}))+'\\n\\nBody:\\n'+(req.body?esc(prettyJson(req.body)):'(empty)')+'</pre></div>';
-  // Raw Response
   if(hasResponse){
     h+='<div id="sec-response" class="detail-section"><h3 class="res-title">Raw Response'+(res.isStream?' [SSE]':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>Status: '+res.statusCode+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(res.headers||{}))+'\\n\\n';
     if(res.isStream&&chunks&&chunks.length>0){h+='SSE Chunks:\\n';for(const c of chunks) h+=esc(c.body)+'\\n';}
@@ -422,7 +377,7 @@ function renderDetail(){
   $detail.innerHTML=toc+'<div class="detail-scroll">'+h+'</div>';
 }
 
-// ─── 数据处理（批量） ───
+// ─── 数据处理 ───
 let renderScheduled=false;
 function scheduleRender(){
   if(renderScheduled) return;
@@ -436,7 +391,6 @@ function scheduleRender(){
 }
 function processEntry(entry){
   if(entry.type==='request'){
-    // 不覆盖已有条目（避免丢失已到达的 response/chunks）
     if(!requests.has(entry.id)) requests.set(entry.id,{req:entry,res:null,chunks:[]});
   }else if(entry.type==='response'){
     const rid=entry.requestId;
@@ -450,27 +404,29 @@ function processEntry(entry){
   scheduleRender();
 }
 
-// ─── SSE ───
-let sseConnected=false;
+// ─── WebSocket ───
+var ws=null;
 function connect(){
-  const es=new EventSource('/api/logs/stream');
-  es.onopen=()=>{sseConnected=true};
-  es.onmessage=(e)=>{sseConnected=true;try{processEntry(JSON.parse(e.data))}catch{}};
-  // 只在连接已建立后断开才重连；连接中(readyState=0)的 onerror 由浏览器自动重试
-  es.onerror=()=>{
-    if(es.readyState===EventSource.CLOSED){
-      sseConnected=false;
-      setTimeout(connect,2000);
-    }
+  var proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(proto+'//'+location.host+'/api/logs/stream');
+  ws.onmessage=function(e){
+    try{
+      var msg=JSON.parse(e.data);
+      if(msg.type==='history'){
+        for(var i=0;i<msg.data.length;i++) processEntry(msg.data[i]);
+      }else if(msg.type==='log_entry'){
+        processEntry(msg.data);
+      }else if(msg.type==='cleared'){
+        doClearAll();
+      }
+    }catch{}
   };
+  ws.onclose=function(){setTimeout(connect,2000)};
 }
-// 先加载历史，再开启 SSE，避免竞态导致数据丢失
-async function loadHistory(){
-  try{const resp=await fetch('/api/logs');const data=await resp.json();for(const entry of data)processEntry(entry)}catch{}
-  connect();
-}
-function clearAll(){
-  fetch('/api/logs',{method:'DELETE'});
+connect();
+
+// ─── 清空 ───
+function doClearAll(){
   requests.clear();selectedId=null;lastDetailHash='';lastListHash='';
   for(const el of rowPool.values()) el.remove();
   rowPool.clear();
@@ -481,10 +437,14 @@ function clearAll(){
   $count.textContent='0 条';
   updateTotalTokens();
   $detail.innerHTML='<div class="detail-empty">点击左侧请求查看详情</div>';
-  // 显示空列表提示
   $listContent.innerHTML='<div class="empty-list" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px;text-align:center;padding:20px">等待请求...<br>将 LLM API 指向此代理即可抓包</div>';
 }
+function clearAll(){
+  if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:'clear'}));
+  doClearAll();
+}
 
+// ─── 导入历史 ───
 async function handleFileSelect(input){
   const file = input.files && input.files[0];
   if(!file) return;
@@ -494,21 +454,19 @@ async function handleFileSelect(input){
     const entries = [];
     for(const line of lines){
       const trimmed = line.trim();
-      if(!trimmed || trimmed.startsWith('[') || trimmed.startsWith('─') || trimmed.startsWith('>>>') || trimmed.startsWith('<<<')) continue;
+      if(!trimmed || trimmed.startsWith('[') || trimmed.startsWith('\\xe2\\x80\\x80') || trimmed.startsWith('>>>') || trimmed.startsWith('<<<')) continue;
       try { entries.push(JSON.parse(trimmed)); } catch {}
     }
     if(entries.length === 0){
-      alert('未能从文件中解析出日志条目，请确认文件为 JSONL 格式（每行一个 JSON 对象）');
+      alert('未能从文件中解析出日志条目，请确认文件为 JSONL 格式');
       return;
     }
-    const resp = await fetch('/api/logs/import', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(entries),
-    });
-    const result = await resp.json();
-    alert('成功加载 ' + result.imported + ' 条记录');
-    await refreshData();
+    if(ws&&ws.readyState===WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'import',data:entries}));
+      alert('已发送导入请求');
+    }else{
+      alert('WebSocket 未连接，无法导入');
+    }
   } catch(e) {
     alert('加载失败: ' + e);
   }
@@ -533,14 +491,12 @@ function scrollToSection(id){
   var scroller=document.querySelector('.detail-scroll');
   if(el&&scroller) scroller.scrollTo({top:el.offsetTop-scroller.offsetTop,behavior:'smooth'});
 }
-
-loadHistory();
 </script>
 </body>
 </html>`;
 }
 
-// ─── Web 服务器 ───
+// ─── Web 服务器 + WebSocket ───
 export function createWebServer(config: ProxyConfig): http.Server {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
@@ -557,28 +513,12 @@ export function createWebServer(config: ProxyConfig): http.Server {
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(getHtml());
-    } else if (url.pathname === '/api/logs' && req.method === 'GET') {
-      const logs = getLogs();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(logs));
     } else if (url.pathname === '/api/logs' && req.method === 'DELETE') {
       clearLogs();
+      // 广播清除消息给所有 WebSocket 客户端
+      broadcast({ type: 'cleared' });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-    } else if (url.pathname === '/api/logs/stream') {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.flushHeaders();
-      // 禁用 Nagle 算法，确保 SSE 事件立即发送（不缓冲）
-      res.socket?.setNoDelay(true);
-      res.write(': connected\n\n');
-      const unsubscribe = onLog((entry: LogEntry) => {
-        res.write(`data: ${JSON.stringify(entry)}\n\n`);
-      });
-      req.on('close', () => { unsubscribe(); });
     } else if (url.pathname === '/api/logs/import' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk.toString(); });
@@ -597,6 +537,57 @@ export function createWebServer(config: ProxyConfig): http.Server {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Not Found');
     }
+  });
+
+  // WebSocket 服务器
+  const wss = new WebSocketServer({ noServer: true });
+
+  // 处理 HTTP Upgrade 请求
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    if (url.pathname === '/api/logs/stream') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  // 广播消息到所有客户端
+  function broadcast(data: object) {
+    const msg = JSON.stringify(data);
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    }
+  }
+
+  // 新客户端连接
+  wss.on('connection', (ws) => {
+    // 发送全量历史
+    const history = getLogs();
+    ws.send(JSON.stringify({ type: 'history', data: history }));
+
+    // 处理客户端消息
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'clear') {
+          clearLogs();
+          broadcast({ type: 'cleared' });
+        } else if (msg.type === 'import') {
+          const result = importLogs(msg.data as LogEntry[]);
+          ws.send(JSON.stringify({ type: 'import_result', imported: result.imported }));
+        }
+      } catch {}
+    });
+  });
+
+  // 订阅日志事件，实时广播
+  onLog((entry: LogEntry) => {
+    broadcast({ type: 'log_entry', data: entry });
   });
 
   return server;
