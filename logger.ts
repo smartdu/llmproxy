@@ -217,15 +217,13 @@ export function clearLogs(): void {
 }
 
 // ─── 打印请求 ───
-let currentRequestId: string | null = null;
-
 export function logRequest(
   config: ProxyConfig,
   method: string,
   url: string,
   headers: Record<string, string | string[] | undefined>,
   body: string,
-): void {
+): string {
   const masked = maskHeaders(headers, config.sensitiveHeaders);
   const separator = '─'.repeat(60);
 
@@ -270,7 +268,7 @@ export function logRequest(
     chatRequest,
   });
   writeJsonLine(entry);
-  currentRequestId = entry.id;
+  return entry.id;
 }
 
 // ─── 打印响应 ───
@@ -280,6 +278,7 @@ export function logResponse(
   headers: Record<string, string | string[] | undefined>,
   body: string,
   isStream: boolean,
+  requestId?: string,
 ): void {
   const masked = maskHeaders(headers, config.sensitiveHeaders);
   const separator = '─'.repeat(60);
@@ -323,14 +322,14 @@ export function logResponse(
     isStream,
     headers: masked,
     body: body || undefined,
-    requestId: currentRequestId ?? undefined,
+    requestId: requestId ?? undefined,
     chatResponse,
   });
   writeJsonLine(entry);
 }
 
 // ─── SSE 数据块日志 ───
-export function logSSEChunk(data: string): void {
+export function logSSEChunk(data: string, requestId?: string): void {
   const line = `[${ts()}] SSE chunk: ${data}`;
   console.log(`${C.dim}${line}${C.reset}`);
   writeToFile(line);
@@ -339,7 +338,7 @@ export function logSSEChunk(data: string): void {
   const parsed = parseSSEChunk(data);
 
   // 写入内存，并更新对应请求的 sseContent
-  const reqId = currentRequestId ?? undefined;
+  const reqId = requestId ?? undefined;
   if (reqId && parsed.content) {
     const reqEntry = logStore.find(e => e.id === reqId);
     if (reqEntry) {

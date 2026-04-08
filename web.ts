@@ -53,9 +53,12 @@ function getHtml(): string {
   .detail{flex:1;overflow-y:auto;padding:16px}
   .detail-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:14px}
   .detail-section{margin-bottom:20px}
-  .detail-section h3{font-size:13px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .detail-section h3{font-size:13px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
   .detail-section h3.req-title{color:var(--blue)}
   .detail-section h3.res-title{color:var(--purple)}
+  .copy-btn{font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:400}
+  .copy-btn:hover{opacity:.8}
+  .copy-btn.copied{color:var(--green);border-color:var(--green)}
   pre{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
   .empty-list{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px;text-align:center;padding:20px}
   .count{font-size:12px;color:var(--text2);white-space:nowrap}
@@ -427,10 +430,10 @@ function renderDetail(){
   }
   // Raw Request
   const dur = res && req.timestamp ? getDuration(req.timestamp, res.timestamp) : '';
-  h+='<div class="detail-section"><h3 class="req-title">Raw Request'+(dur?' <span style="font-size:11px;color:var(--text3);font-weight:normal">'+dur+'</span>':'')+'</h3><pre>'+esc(req.method+' '+(req.url||''))+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(req.headers||{}))+'\\n\\nBody:\\n'+(req.body?esc(prettyJson(req.body)):'(empty)')+'</pre></div>';
+  h+='<div class="detail-section"><h3 class="req-title">Raw Request'+(dur?' <span style="font-size:11px;color:var(--text3);font-weight:normal">'+dur+'</span>':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>'+esc(req.method+' '+(req.url||''))+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(req.headers||{}))+'\\n\\nBody:\\n'+(req.body?esc(prettyJson(req.body)):'(empty)')+'</pre></div>';
   // Raw Response
   if(res){
-    h+='<div class="detail-section"><h3 class="res-title">Raw Response'+(res.isStream?' [SSE]':'')+'</h3><pre>Status: '+res.statusCode+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(res.headers||{}))+'\\n\\n';
+    h+='<div class="detail-section"><h3 class="res-title">Raw Response'+(res.isStream?' [SSE]':'')+'<span class="copy-btn" onclick="copySection(this)">复制</span></h3><pre>Status: '+res.statusCode+'\\n\\nHeaders:\\n'+prettyJson(JSON.stringify(res.headers||{}))+'\\n\\n';
     if(res.isStream&&chunks&&chunks.length>0){h+='SSE Chunks:\\n';for(const c of chunks) h+=esc(c.body)+'\\n';}
     else h+='Body:\\n'+(res.body?esc(prettyJson(res.body)):'(empty)');
     h+='</pre></div>';
@@ -522,6 +525,18 @@ async function handleFileSelect(input){
     alert('加载失败: ' + e);
   }
   input.value = '';
+}
+
+// ─── 复制 Raw 内容 ───
+function copySection(btn){
+  var pre=btn.parentElement.nextElementSibling;
+  if(!pre) return;
+  var text=pre.textContent||'';
+  navigator.clipboard.writeText(text).then(function(){
+    btn.textContent='已复制';
+    btn.classList.add('copied');
+    setTimeout(function(){btn.textContent='复制';btn.classList.remove('copied');},1500);
+  });
 }
 
 loadHistory();

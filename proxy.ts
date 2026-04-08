@@ -110,8 +110,9 @@ export function createProxyServer(config: ProxyConfig): http.Server {
     }
 
     // 记录请求日志
+    let reqId: string | undefined;
     if (doIntercept) {
-      logRequest(config, clientReq.method || 'GET', pathname, clientReq.headers, reqBody);
+      reqId = logRequest(config, clientReq.method || 'GET', pathname, clientReq.headers, reqBody);
     } else {
       info(`转发 (不记录): ${clientReq.method} ${pathname}`);
     }
@@ -125,7 +126,7 @@ export function createProxyServer(config: ProxyConfig): http.Server {
         // 非流式：收集完整响应体后记录再返回
         collectBody(proxyRes)
           .then((resBody) => {
-            logResponse(config, proxyRes.statusCode || 0, proxyRes.headers, resBody, false);
+            logResponse(config, proxyRes.statusCode || 0, proxyRes.headers, resBody, false, reqId);
             const resHeaders = { ...proxyRes.headers };
             delete resHeaders['content-length'];
             if (!clientRes.headersSent) {
@@ -144,7 +145,7 @@ export function createProxyServer(config: ProxyConfig): http.Server {
         // 流式或不需要拦截：直接管道转发
         if (doIntercept && isStream) {
           warn(`SSE 流式响应开始 — 实时转发并记录每个 chunk`);
-          logResponse(config, proxyRes.statusCode || 0, proxyRes.headers, '(streaming...)', true);
+          logResponse(config, proxyRes.statusCode || 0, proxyRes.headers, '(streaming...)', true, reqId);
 
           // 注入 chunk 日志（用 PassThrough 避免影响管道）
           proxyRes.on('data', (chunk: Buffer) => {
@@ -152,7 +153,7 @@ export function createProxyServer(config: ProxyConfig): http.Server {
             for (const line of text.split('\n')) {
               const trimmed = line.trim();
               if (trimmed && trimmed.startsWith('data:')) {
-                logSSEChunk(trimmed);
+                logSSEChunk(trimmed, reqId);
               }
             }
           });
