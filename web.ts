@@ -5,15 +5,13 @@ import type { ProxyConfig } from './config.js';
 
 function getHtml(): string {
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LLM Proxy - 抓包日志</title>
 <style>
-  :root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;--blue:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff;--msb:#1c2536;--mub:#1c2d1c;--mab:#2a1f3d;--meb:#2d1c1c}
-  [data-theme="dark"]{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;--blue:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff;--msb:#1c2536;--mub:#1c2d1c;--mab:#2a1f3d;--meb:#2d1c1c}
-  [data-theme="light"]{--bg:#fff;--bg2:#f6f8fa;--bg3:#e1e4e8;--border:#d0d7de;--text:#24292f;--text2:#57606a;--text3:#8b949e;--blue:#0969da;--green:#1a7f37;--yellow:#9a6700;--red:#cf222e;--purple:#8250df;--msb:#ddf4ff;--mub:#dafbe1;--mab:#fbefff;--meb:#ffebe9}
+  :root{--bg:#fff;--bg2:#f6f8fa;--bg3:#e1e4e8;--border:#d0d7de;--text:#24292f;--text2:#57606a;--text3:#8b949e;--blue:#0969da;--green:#1a7f37;--yellow:#9a6700;--red:#cf222e;--purple:#8250df;--msb:#ddf4ff;--mub:#dafbe1;--mab:#fbefff;--meb:#ffebe9}
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
   .toolbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
@@ -90,10 +88,6 @@ function getHtml(): string {
   <div class="spacer"></div>
   <input class="search-box" id="searchBox" type="text" placeholder="搜索 model / 内容...">
   <span class="stat-chip" id="totalTokens">Prompt: <b>0</b> | Completion: <b>0</b></span>
-  <span class="label">主题</span>
-  <select id="themeSelect" onchange="setTheme(this.value)">
-    <option value="dark">Dark</option><option value="light">Light</option>
-  </select>
   <span class="count" id="count">0 条</span>
   <button onclick="clearAll()">清空</button>
   <button onclick="document.getElementById('historyFileInput').click()">加载历史</button>
@@ -142,10 +136,6 @@ function matchSearch(item){
   if(res?.body?.toLowerCase().includes(q)) return true;
   return false;
 }
-
-// ─── Theme ───
-function setTheme(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('proxy-theme',t)}
-(function(){const s=localStorage.getItem('proxy-theme');if(s){document.documentElement.setAttribute('data-theme',s);document.getElementById('themeSelect').value=s}})();
 
 // ─── 搜索 ───
 let searchTimer = null;
